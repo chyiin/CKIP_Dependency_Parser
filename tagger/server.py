@@ -19,8 +19,11 @@ from rpyc.utils.registry import UDPRegistryClient, TCPRegistryClient
 from rpyc.utils.authenticators import SSLAuthenticator
 from rpyc.lib import setup_logger
 from rpyc.core import SlaveService
-
+import torch
 from ckiptagger import data_utils, construct_dictionary, WS, POS, NER
+
+if torch.cuda.is_available():
+    torch.cuda.set_device(1)
 
 class ClassicServer(cli.Application):
     mode = cli.SwitchAttr(["-m", "--mode"], cli.Set("threaded", "forking", "stdio", "oneshot"),

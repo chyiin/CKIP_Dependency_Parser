@@ -19,7 +19,7 @@ import matplotlib.pyplot as plt
 from opencc import OpenCC
 from mst import fast_parse
 
-s2t = OpenCC('s2t')
+s2t = OpenCC('s2tw')
 t2s = OpenCC('t2s')
 nltk.download('punkt')   
 
@@ -86,21 +86,13 @@ class english_parser():
 
                 output = self.model(input_ids=b_input_ids, token_type_ids=None, attention_mask=b_input_mask, batch=batch)
                 punct_output = self.punct_model(input_ids=b_input_ids, token_type_ids=None, attention_mask=b_input_mask, batch=batch)
+                indices = torch.tensor(list(range(1,45)))
+                punct_output_filter = torch.index_select(punct_output[1].to('cpu'), 2, indices)
 
-            # label_indices = np.argmax(output[1].to('cpu').numpy(), axis=2)
-            punct_label_indices = np.argmax(punct_output[1].to('cpu').numpy(), axis=2)
+            punct_label_indices = np.argmax(punct_output_filter.numpy(), axis=2)
             seq_output = torch.index_select(output[1][0], 0, torch.tensor(input_seqs).cuda())
             seq_output = torch.index_select(seq_output, 1, torch.tensor(input_seqs).cuda())
-            # print(seq_output)
-            # with open('output.json', 'w') as f:
-            #     json.dump(seq_output.to('cpu').numpy().tolist(), f)
-            # input('1')
             label_indices = fast_parse(torch.transpose(seq_output, 0, 1).fill_diagonal_(-100000).to('cpu').numpy(), one_root=True)
-            # seq_output = torch.transpose(seq_output, 0, 1).fill_diagonal_(-100000).to('cpu')
-            # seq_output_a = seq_output.argmax(1)
-            # seq_output_m = torch.zeros(seq_output.shape).scatter(1, seq_output_a.unsqueeze(1), 100000)
-            # seq_output[0] = seq_output_m[0]
-            # label_indices = fast_parse(seq_output.numpy(), one_root=True)
             
             final_predict = []
             for label_idx in label_indices:
@@ -109,7 +101,7 @@ class english_parser():
 
             punct_new_labels = []
             for label_idx in punct_label_indices[0]:
-                punct_new_labels.append(self.ids_to_labels[label_idx])
+                punct_new_labels.append(self.ids_to_labels[label_idx+1])
             punct_predict.append(punct_new_labels)
 
         punct_final_predict = []
@@ -118,8 +110,11 @@ class english_parser():
 
         parse = []
         for i in range(len(input[1:])):
-            parse.append((final_predict[1:][i], i+1, punct_final_predict[1:][i]))
-  
+            if final_predict[1:][i] == 0:
+                parse.append((final_predict[1:][i], i+1, 'root'))
+            else:
+                parse.append((final_predict[1:][i], i+1, punct_final_predict[1:][i]))
+
         return parse, sentence_index
 
 @st.cache(allow_output_mutation=True)
@@ -127,7 +122,7 @@ class chinese_parser():
 
     def __init__(self):
         
-        self.conn = rpyc.classic.connect('localhost')
+        self.conn = rpyc.classic.connect('localhost', port=3333)
         self.conn.execute('from ckiptagger import data_utils, construct_dictionary, WS, POS, NER')
         self.conn.execute('ws = WS("./data")')
         self.ids_to_labels = {0: 'root', 1: 'nn', 2: 'conj', 3: 'cc', 4: 'nsubj', 5: 'dep', 6: 'punct', 7: 'lobj', 8: 'loc', 9: 'comod', 10: 'asp', 11: 'rcmod', 12: 'etc', 13: 'dobj', 14: 'cpm', 15: 'nummod', 16: 'clf', 17: 'assmod', 18: 'assm', 19: 'amod', 20: 'top', 21: 'attr', 22: 'advmod', 23: 'tmod', 24: 'neg', 25: 'prep', 26: 'pobj', 27: 'cop', 28: 'dvpmod', 29: 'dvpm', 30: 'lccomp', 31: 'plmod', 32: 'det', 33: 'pass', 34: 'ordmod', 35: 'pccomp', 36: 'range', 37: 'ccomp', 38: 'xsubj', 39: 'mmod', 40: 'prnmod', 41: 'rcomp', 42: 'vmod', 43: 'prtmod', 44: 'ba', 45: 'nsubjpass'}
@@ -140,7 +135,7 @@ class chinese_parser():
 
     def output(self, input_text):
 
-        input_text = s2t.convert(input_text)
+        # input_text = s2t.convert(input_text)
         input_sent = self.conn.eval(f'ws(["{input_text}"])')[0]
         input_sentence = []
         for i in input_sent:
@@ -149,7 +144,7 @@ class chinese_parser():
         parse_input = ['root'] + list(input_sent)
         sentence_index = []
         for i in range(len(parse_input)):
-            sentence_index.append((i, parse_input[i]))
+            sentence_index.append((i, s2t.convert(parse_input[i])))
 
         input_token, input_idx, input_seqs = tokenize_and_preserve_labels(self.tokenizer, input)
 
@@ -170,10 +165,10 @@ class chinese_parser():
 
                 output = self.model(input_ids=b_input_ids, token_type_ids=None, attention_mask=b_input_mask)
                 punct_output = self.punct_model(input_ids=b_input_ids, token_type_ids=None, attention_mask=b_input_mask)
+                indices = torch.tensor(list(range(1,46)))
+                punct_output_filter = torch.index_select(punct_output[1].to('cpu'), 2, indices)
 
-            # label_indices = np.argmax(output[1].to('cpu').numpy(), axis=2)
-            # label_indices = fast_parse(torch.transpose(output[1], 1, 2)[0].fill_diagonal_(-100000).to('cpu').numpy(), one_root=True)
-            punct_label_indices = np.argmax(punct_output[1].to('cpu').numpy(), axis=2)
+            punct_label_indices = np.argmax(punct_output_filter.numpy(), axis=2)
             seq_output = torch.index_select(output[1][0], 0, torch.tensor(input_seqs).cuda())
             seq_output = torch.index_select(seq_output, 1, torch.tensor(input_seqs).cuda())
             label_indices = fast_parse(torch.transpose(seq_output, 0, 1).fill_diagonal_(-100000).to('cpu').numpy(), one_root=True)
@@ -185,7 +180,7 @@ class chinese_parser():
 
             punct_new_labels = []
             for label_idx in punct_label_indices[0]:
-                punct_new_labels.append(self.ids_to_labels[label_idx])
+                punct_new_labels.append(self.ids_to_labels[label_idx+1])
             punct_predict.append(punct_new_labels)
 
         punct_final_predict = []
@@ -194,7 +189,10 @@ class chinese_parser():
 
         parse = []
         for i in range(len(input[1:])):
-            parse.append((final_predict[1:][i], i+1, punct_final_predict[1:][i]))
+            if final_predict[1:][i] == 0:
+                parse.append((final_predict[1:][i], i+1, 'root'))
+            else:
+                parse.append((final_predict[1:][i], i+1, punct_final_predict[1:][i]))
   
         return parse, sentence_index
 
